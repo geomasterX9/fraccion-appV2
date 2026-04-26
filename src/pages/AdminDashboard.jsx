@@ -4,12 +4,13 @@ import { supabase } from '../lib/supabaseClient'
 import PropiedadDetalle from '../components/PropiedadDetalle'
 import GenerarAdeudosModal from '../components/GenerarAdeudosModal'
 import { useToast } from '../components/Toast'
+import BandejaAprobaciones from '../components/BandejaAprobaciones'
 
 export default function AdminDashboard() {
     const { cerrarSesion, fraccionamientoId } = useAuth()
     const [propiedades, setPropiedades] = useState([])
     const [busqueda, setBusqueda] = useState('')
-    const [filtro, setFiltro] = useState('todos') // 'todos', 'al-corriente', 'con-adeudo'
+    const [filtro, setFiltro] = useState('todos')
     const [cargando, setCargando] = useState(true)
     const [propiedadSeleccionada, setPropiedadSeleccionada] = useState(null)
     const [modalGenerarAbierto, setModalGenerarAbierto] = useState(false)
@@ -23,20 +24,18 @@ export default function AdminDashboard() {
     const cargarPropiedades = async () => {
         setCargando(true)
         try {
-            // Traemos las propiedades y sus adeudos pendientes para calcular el estado
             const { data, error } = await supabase
                 .from('propiedades')
                 .select(`
-          *,
-          usuarios (nombre),
-          adeudos (monto_total, estatus)
-        `)
+                  *,
+                  usuarios (nombre),
+                  adeudos (monto_total, estatus)
+                `)
                 .eq('fraccionamiento_id', fraccionamientoId)
                 .order('identificador', { ascending: true })
 
             if (error) throw error
 
-            // Procesamos los datos para la interfaz
             const procesadas = data.map(p => {
                 const adeudosPendientes = p.adeudos?.filter(a => a.estatus === 'PENDIENTE') || []
                 const saldo = adeudosPendientes.reduce((sum, a) => sum + Number(a.monto_total), 0)
@@ -73,7 +72,7 @@ export default function AdminDashboard() {
             {/* Navbar Superior */}
             <nav className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-40 flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                    <div className="size-10 bg-primary rounded-xl flex items-center justify-center text-white">
+                    <div className="size-10 bg-slate-900 rounded-xl flex items-center justify-center text-white">
                         <span className="material-symbols-outlined">domain</span>
                     </div>
                     <h1 className="text-xl font-black text-slate-800 tracking-tight">AdminPanel</h1>
@@ -99,6 +98,11 @@ export default function AdminDashboard() {
                     </button>
                 </header>
 
+                {/* AQUÍ ESTÁ LA BANDEJA DE APROBACIONES */}
+                <div className="mb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <BandejaAprobaciones />
+                </div>
+
                 {/* Buscador y Filtros */}
                 <div className="flex flex-col md:flex-row gap-4 mb-8">
                     <div className="relative flex-1">
@@ -108,7 +112,7 @@ export default function AdminDashboard() {
                             placeholder="Buscar por casa o residente..."
                             value={busqueda}
                             onChange={(e) => setBusqueda(e.target.value)}
-                            className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:border-primary/50 outline-none shadow-sm transition-all"
+                            className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:border-slate-400 outline-none shadow-sm transition-all"
                         />
                     </div>
                     <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
@@ -175,10 +179,11 @@ export default function AdminDashboard() {
                     propiedad={propiedadSeleccionada}
                     alCerrar={() => {
                         setPropiedadSeleccionada(null)
-                        cargarPropiedades() // Recarga al cerrar para ver cambios de pagos o residentes
+                        cargarPropiedades() 
                     }}
                 />
             )}
+            
             {/* Modal de Generación Masiva */}
             {modalGenerarAbierto && (
                 <GenerarAdeudosModal
