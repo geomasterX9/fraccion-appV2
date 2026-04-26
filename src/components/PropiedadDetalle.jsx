@@ -45,7 +45,7 @@ export default function PropiedadDetalle({ propiedad, alCerrar }) {
     try {
       const { error } = await supabase
         .from('propiedades')
-        .update({ owner_user_id: null })
+        .update({ owner_user_id: null, nombre_residente: null, email_residente: null, telefono_residente: null })
         .eq('id', propiedad.id)
 
       if (error) throw error
@@ -76,13 +76,23 @@ export default function PropiedadDetalle({ propiedad, alCerrar }) {
       })
 
       if (error) throw error
-      if (!data.ok) throw new Error(data.mensaje)
+      
+      if (data && data.ok === false) {
+        throw new Error(data.error || data.mensaje || 'Error al asignar')
+      }
 
-      toast.exito(`¡Vecino asignado! Contraseña temporal: ${passwordTemporal}`)
+      toast.exito(`¡Vecino asignado! Contraseña: ${passwordTemporal}`)
       setResidenteActual(formData.nombre)
       setModalAbierto(false)
+      
+      // Adiós a la recarga pesada. Solo avisamos al componente padre que ya terminamos.
+      if (alCerrar) {
+        setTimeout(() => alCerrar(true), 1500)
+      }
+
     } catch (error) {
-      toast.error(error.message || 'Error al asignar residente. Verifica que el correo no exista ya.')
+      console.error("Error completo:", error)
+      toast.error(error.message || 'Error al asignar residente')
     } finally {
       setAsignando(false)
     }
@@ -142,7 +152,6 @@ export default function PropiedadDetalle({ propiedad, alCerrar }) {
                   </div>
                 )}
               </div>
-
             </div>
           </div>
         </div>
