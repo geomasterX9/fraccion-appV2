@@ -1,119 +1,133 @@
 import React, { useState } from 'react'
-import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../context/AuthContext'
 import { useToast } from './Toast'
 
+const MESES_NOMBRES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
+
 export default function GenerarAdeudosModal({ onClose, onExito }) {
-  const { fraccionamientoId } = useAuth()
-  const { toast } = useToast()
-  
-  const [montoBase, setMontoBase] = useState(150)
-  const [mes, setMes] = useState(new Date().getMonth() + 1)
-  const [anio, setAnio] = useState(new Date().getFullYear())
-  const [procesando, setProcesando] = useState(false)
+    const { fraccionamientoId } = useAuth()
+    const { toast } = useToast()
+    const [cargando, setCargando] = useState(false)
+    
+    // Estados del formulario
+    const [monto, setMonto] = useState('150')
+    const fechaActual = new Date()
+    const [mes, setMes] = useState(fechaActual.getMonth() + 1)
+    const [anio, setAnio] = useState(fechaActual.getFullYear())
+    
+    // NUEVO: Estado para el concepto dinámico
+    const [concepto, setConcepto] = useState(`Mantenimiento ${MESES_NOMBRES[fechaActual.getMonth()]}`)
 
-  const handleGenerar = async (e) => {
-    e.preventDefault()
-    setProcesando(true)
+    const ejecutarGeneracion = async () => {
+        if (!monto || monto <= 0) return toast.error("Ingresa un monto válido")
+        if (!concepto.trim()) return toast.error("El concepto no puede estar vacío")
+        
+        try {
+            setCargando(true)
 
-    try {
-      // Nota que aquí usamos fraccionamientoId (con I mayúscula)
-      // que es el nombre que viene del useAuth()
-      const { data, error } = await supabase.functions.invoke('generar-adeudos', {
-        body: {
-          fraccionamiento_id: fraccionamientoId, // <--- CORREGIDO AQUÍ
-          monto_base: Number(montoBase),
-          mes: Number(mes),
-          anio: Number(anio)
+            // 1. Traer todas las casas del fraccionamiento
+            const { data: propiedades, error: errP } = await supabase
+                .from('propiedades')
+                .select('id')
+                .eq('fraccionamiento_id', fraccionamientoId)
+
+            if (errP) throw errP
+
+            // 2. Preparar la carga masiva
+            const nuevosAdeudos = propiedades.map(p => ({
+                propiedad_id: p.id,
+                monto_total: parseFloat(monto),
+                mes_cargo: parseInt(mes),
+                anio_cargo: parseInt(anio),
+                concepto: concepto.trim(), // Usamos el concepto del input
+                estatus: 'PENDIENTE'
+            }))
+
+            // 3. Inserción masiva
+            const { error: errI } = await supabase
+                .from('adeudos')
+                .insert(nuevosAdeudos)
+
+            if (errI) {
+                // Si choca con nuestra nueva regla UNIQUE(propiedad, mes, anio, concepto)
+                if (errI.code === '23505') {
+                    toast.error("Ya existe un cargo con este mismo concepto para este mes.")
+                } else {
+                    throw errI
+                }
+            } else {
+                toast.exito(`¡Listo! Se generaron ${propiedades.length} cargos de "${concepto}"`)
+                if (onExito) onExito()
+                onClose()
+            }
+
+        } catch (error) {
+            console.error(error)
+            toast.error("Error al generar los cargos")
+        } finally {
+            setCargando(false)
         }
-      })
-
-      if (error) throw error
-      if (!data.ok) throw new Error(data.mensaje)
-
-      toast.exito(`¡Éxito! Se generaron ${data.generados} adeudos.`)
-      onExito()
-      onClose()
-    } catch (error) {
-      toast.error('Error al generar: ' + error.message)
-    } finally {
-      setProcesando(false)
     }
-  }
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 font-display">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md animate-in zoom-in-95 duration-200 p-8">
-        <form onSubmit={handleGenerar}>
-          <div className="size-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-6">
-            <span className="material-symbols-outlined text-4xl">bolt</span>
-          </div>
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
+                <div className="size-14 bg-indigo-600 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-100">
+                    <span className="material-symbols-outlined text-3xl">bolt</span>
+                </div>
 
-          <h3 className="text-2xl font-black text-slate-800 mb-2">Generar Mensualidad</h3>
-          <p className="text-slate-500 text-sm mb-8 leading-relaxed">
-            Se aplicará el cargo a todas las casas. Si tienen **cuota especial**, el sistema la usará automáticamente.
-          </p>
+                <h3 className="text-2xl font-black text-slate-900 mb-1">Generar Cargos</h3>
+                <p className="text-slate-500 text-sm mb-6 font-medium">Crea una cuenta por cobrar para todo el fraccionamiento.</p>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Monto Base</label>
-              <input 
-                type="number"
-                required
-                value={montoBase}
-                onChange={(e) => setMontoBase(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-slate-700 focus:border-primary/30"
-              />
+                <div className="space-y-5 mb-8">
+                    {/* Campo de Concepto */}
+                    <div>
+                        <label className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 ml-1">Concepto del Cargo</label>
+                        <input 
+                            type="text" 
+                            value={concepto}
+                            onChange={(e) => setConcepto(e.target.value)}
+                            className="w-full mt-1.5 px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:bg-white focus:border-indigo-500 outline-none transition-all font-bold text-slate-700"
+                            placeholder="Ej. Mantenimiento Mayo"
+                        />
+                    </div>
+
+                    {/* Campo de Monto */}
+                    <div>
+                        <label className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 ml-1">Monto Individual</label>
+                        <div className="relative mt-1.5">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">$</span>
+                            <input 
+                                type="number" 
+                                value={monto}
+                                onChange={(e) => setMonto(e.target.value)}
+                                className="w-full pl-8 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:bg-white focus:border-indigo-500 outline-none transition-all font-bold text-slate-700 text-lg"
+                                placeholder="0.00"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                    <button 
+                        onClick={onClose}
+                        className="py-4 bg-slate-50 text-slate-500 rounded-2xl font-black hover:bg-slate-100 transition-all text-sm uppercase tracking-wider"
+                    >
+                        Cancelar
+                    </button>
+                    <button 
+                        onClick={ejecutarGeneracion}
+                        disabled={cargando}
+                        className="py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 text-sm uppercase tracking-wider"
+                    >
+                        {cargando ? 'Generando...' : 'Confirmar'}
+                    </button>
+                </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Mes</label>
-                <select 
-                  value={mes}
-                  onChange={(e) => setMes(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none"
-                >
-                  <option value="1">Enero</option>
-                  <option value="2">Febrero</option>
-                  <option value="3">Marzo</option>
-                  <option value="4">Abril</option>
-                  <option value="5">Mayo</option>
-                  <option value="6">Junio</option>
-                  <option value="7">Julio</option>
-                  <option value="8">Agosto</option>
-                  <option value="9">Septiembre</option>
-                  <option value="10">Octubre</option>
-                  <option value="11">Noviembre</option>
-                  <option value="12">Diciembre</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Año</label>
-                <input 
-                  type="number"
-                  value={anio}
-                  onChange={(e) => setAnio(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-700 outline-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-3 mt-8">
-            <button type="button" onClick={onClose} className="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors">
-              Cerrar
-            </button>
-            <button 
-              type="submit" 
-              disabled={procesando}
-              className="flex-[2] py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2"
-            >
-              {procesando ? <span className="material-symbols-outlined animate-spin">sync</span> : 'Generar Ahora'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
+        </div>
+    )
 }
